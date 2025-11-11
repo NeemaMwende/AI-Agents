@@ -105,64 +105,148 @@
 
 
 # DPR with RAG intergration  
+# import os
+# os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Hide TensorFlow CPU logs
+# os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # Hide transformers warnings
+# import warnings
+# warnings.filterwarnings("ignore")
+# from transformers import (
+#     DPRQuestionEncoder, DPRQuestionEncoderTokenizer,
+#     DPRContextEncoder, DPRContextEncoderTokenizer,
+#     AutoTokenizer, AutoModelForSeq2SeqLM
+# )
+# import torch
+# from torch.nn.functional import cosine_similarity
+
+# # ---- DPR Setup (Retriever) ----
+# question_encoder = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+# question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+
+# context_encoder = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+# context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+
+# # ---- Example data ----
+# question = "What is the capital of Kenya?"
+# contexts = [
+#     "Eldoret is a town in western Kenya.",
+#     "Nairobi is the capital and largest city of Kenya.",
+#     "Kisumu is a port city on Lake Victoria in western Kenya.",
+#     "Mwingi is a town located in Kitui County, Kenya."
+# ]
+
+# # ---- Step 1: Encode question ----
+# q_inputs = question_tokenizer(question, return_tensors="pt")
+# q_embedding = question_encoder(**q_inputs).pooler_output  # shape: [1, hidden_dim]
+
+# # ---- Step 2: Encode contexts ----
+# ctx_inputs = context_tokenizer(contexts, padding=True, truncation=True, return_tensors="pt")
+# ctx_embeddings = context_encoder(**ctx_inputs).pooler_output  # shape: [n, hidden_dim]
+
+# # ---- Step 3: Compute similarity between question and contexts ----
+# scores = cosine_similarity(q_embedding, ctx_embeddings)
+# best_idx = torch.argmax(scores)
+# best_context = contexts[best_idx]
+
+# print("\nQuestion:", question)
+# print("Retrieved context:", best_context)
+
+# # ---- Step 4: Use a generator model (like T5) to produce an answer ----
+# generator_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+# generator_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+
+# # Combine retrieved context + question as input
+# rag_input = f"Context: {best_context}\nQuestion: {question}\nAnswer:"
+
+# # Tokenize and generate answer
+# inputs = generator_tokenizer(rag_input, return_tensors="pt")
+# outputs = generator_model.generate(**inputs, max_new_tokens=50)
+
+# # Decode generated answer
+# answer = generator_tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# print("\nGenerated Answer:", answer)
+
+
+
+
+
+# RAG + DPR + STREAMLIT 
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Hide TensorFlow CPU logs
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # Hide transformers warnings
 import warnings
 warnings.filterwarnings("ignore")
+import streamlit as st
 from transformers import (
     DPRQuestionEncoder, DPRQuestionEncoderTokenizer,
     DPRContextEncoder, DPRContextEncoderTokenizer,
-    AutoTokenizer, AutoModelForSeq2SeqLM
+    BartForConditionalGeneration, BartTokenizer
 )
 import torch
 from torch.nn.functional import cosine_similarity
 
-# ---- DPR Setup (Retriever) ----
-question_encoder = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
-question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+# ---- Load DPR models and tokenizers ----
+@st.cache_resource
+def load_dpr_models():
+    question_encoder = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+    question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+    context_encoder = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+    context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+    return question_encoder, question_tokenizer, context_encoder, context_tokenizer
 
-context_encoder = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
-context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+# ---- Load generator model (BART for simplicity) ----
+@st.cache_resource
+def load_generator():
+    generator_model = BartForConditionalGeneration.from_pretrained("facebook/bart-large-cnn")
+    generator_tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
+    return generator_model, generator_tokenizer
 
-# ---- Example data ----
-question = "What is the capital of Kenya?"
+
+# ---- Initialize Models ----
+question_encoder, question_tokenizer, context_encoder, context_tokenizer = load_dpr_models()
+generator_model, generator_tokenizer = load_generator()
+
+# ---- Streamlit UI ----
+st.title("🧠 Mini RAG + DPR Question Answering System")
+
+# Sample contexts
 contexts = [
-    "Eldoret is a town in western Kenya.",
-    "Nairobi is the capital and largest city of Kenya.",
-    "Kisumu is a port city on Lake Victoria in western Kenya.",
-    "Mwingi is a town located in Kitui County, Kenya."
+    "Nairobi is the capital city of Kenya.",
+    "Eldoret is a town in western Kenya known for athletics.",
+    "Mombasa is Kenya's coastal city with beaches.",
+    "Kisumu is located on the shores of Lake Victoria."
 ]
 
-# ---- Step 1: Encode question ----
-q_inputs = question_tokenizer(question, return_tensors="pt")
-q_embedding = question_encoder(**q_inputs).pooler_output  # shape: [1, hidden_dim]
+# Input field
+question = st.text_input("Enter your question:", "What is the capital of Kenya?")
 
-# ---- Step 2: Encode contexts ----
-ctx_inputs = context_tokenizer(contexts, padding=True, truncation=True, return_tensors="pt")
-ctx_embeddings = context_encoder(**ctx_inputs).pooler_output  # shape: [n, hidden_dim]
+if st.button("Get Answer"):
+    with st.spinner("Retrieving and generating answer..."):
+        # Encode question
+        q_inputs = question_tokenizer(question, return_tensors="pt")
+        q_embedding = question_encoder(**q_inputs).pooler_output  # [1, hidden_dim]
 
-# ---- Step 3: Compute similarity between question and contexts ----
-scores = cosine_similarity(q_embedding, ctx_embeddings)
-best_idx = torch.argmax(scores)
-best_context = contexts[best_idx]
+        # Encode contexts
+        ctx_inputs = context_tokenizer(contexts, padding=True, truncation=True, return_tensors="pt")
+        ctx_embeddings = context_encoder(**ctx_inputs).pooler_output  # [n, hidden_dim]
 
-print("\nQuestion:", question)
-print("Retrieved context:", best_context)
+        # Compute similarity
+        scores = cosine_similarity(q_embedding, ctx_embeddings)
+        best_idx = torch.argmax(scores)
+        best_context = contexts[best_idx]
 
-# ---- Step 4: Use a generator model (like T5) to produce an answer ----
-generator_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
-generator_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+        # Combine question + context
+        input_text = f"question: {question} context: {best_context}"
+        input_ids = generator_tokenizer(input_text, return_tensors="pt").input_ids
 
-# Combine retrieved context + question as input
-rag_input = f"Context: {best_context}\nQuestion: {question}\nAnswer:"
+        # Generate answer
+        outputs = generator_model.generate(input_ids, max_length=100, num_beams=4, early_stopping=True)
+        answer = generator_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-# Tokenize and generate answer
-inputs = generator_tokenizer(rag_input, return_tensors="pt")
-outputs = generator_model.generate(**inputs, max_new_tokens=50)
+        # Display results
+        st.subheader("Retrieved Context:")
+        st.write(best_context)
 
-# Decode generated answer
-answer = generator_tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-print("\nGenerated Answer:", answer)
+        st.subheader("Generated Answer:")
+        st.success(answer)
 
