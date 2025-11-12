@@ -5,11 +5,11 @@ warnings.warn = warn
 warnings.filterwarnings('ignore')
 from fastapi import params
 from ibm_watsonx_ai.foundation_models import Model
-from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
-from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
+# from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
+# from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
 # from ibm_watson_machine_learning.foundation_models.extensions.langchain import␣
 # ↪WatsonxLLM
-from langchain_core.prompts import PromptTemplate
+# from langchain_core.prompts import PromptTemplate
 # from langchain.chains import LLMChain 
 
 def llm_model(prompt_txt, params=None):
@@ -22,10 +22,31 @@ def llm_model(prompt_txt, params=None):
     "top_k": 1
     } 
 
-prompt = """Classify the following statement as true or false:
-'The Eiffel Tower is located in Berlin.'
-Answer:
+# zero shot prompting
+# prompt = """Classify the following statement as true or false:
+# 'The Eiffel Tower is located in Berlin.'
+# Answer:
+# """
+# response = llm_model(prompt, params)
+# print(f"prompt: {prompt}\n")
+# print(f"response : {response}\n")
+
+
+# one shot prompt
+params = {
+    "max_new_tokens": 20,
+    "temperature": 0.1,
+}
+prompt = """Here is an example of translating a sentence from English to French:
+            English: “How is the weather today?”
+            French: “Comment est le temps aujourd'hui?”
+            Now, translate the following sentence from English to French:
+            English: “Where is the nearest supermarket?”
 """
 response = llm_model(prompt, params)
 print(f"prompt: {prompt}\n")
-print(f"response : {response}\n")
+print(f"response : {response}\n")  
+
+
+
+
