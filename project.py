@@ -5,6 +5,7 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.document_loaders import TextLoader
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
+from langchain.chains import RetrievalQA
 import wget
 
 url = "https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/6JDbUb_L3egv_eOkouY71A.txt"
@@ -13,19 +14,20 @@ wget.download(url, out=filename)
 
 with open(filename, 'r') as file:
     contents = file.read()
-    print(contents)
+    # print(contents)
     
 loader = TextLoader(filename)
 documents = loader.load()
 text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
 texts = text_splitter.split_documents(documents)
-print(len(texts))
+# print(len(texts))
 
 embeddings = HuggingFaceEmbeddings()
 docsearch = Chroma.from_documents(texts, embeddings)  # store the embedding in docsearch using Chromadb
 print('document ingested')
 # Local LLM (no project_id)
-# llm = Ollama(model="llama3")
+llm = Ollama(model="llama3")
+retriever = Chroma(persist_directory='./chroma_db').as_retriever()
 
 # qa_chain = ConversationalRetrievalChain.from_llm(
 #     llm=llm,
@@ -35,3 +37,12 @@ print('document ingested')
 
 # response = qa_chain.run("Summarize the document")
 # print(response)
+
+qa = RetrievalQA.from_cchain_type(
+    llm = llm, 
+    retriever = retriever,
+    chain_type = "stuff"
+)
+query = "what are the companies policies?"
+result = qa.run(query)
+print(result)
