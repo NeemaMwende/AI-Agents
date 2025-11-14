@@ -1,48 +1,91 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Hide TensorFlow CPU logs
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # Hide transformers warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 from langchain_community.llms import Ollama
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
-from langchain.chains import RetrievalQA
+from langchain.prompts import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate
+)
 import wget
 
+# -----------------------------
+# Step 1: Download file
+# -----------------------------
 url = "https://cf-courses-data.s3.us.cloud-object-storage.appdomain.cloud/6JDbUb_L3egv_eOkouY71A.txt"
 filename = "companyPolicies.txt"
 wget.download(url, out=filename)
 
-with open(filename, 'r') as file:
-    contents = file.read()
-    # print(contents)
-    
+# -----------------------------
+# Step 2: Load and split text
+# -----------------------------
 loader = TextLoader(filename)
 documents = loader.load()
-text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-texts = text_splitter.split_documents(documents)
-# print(len(texts))
 
+splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+texts = splitter.split_documents(documents)
+
+# -----------------------------
+# Step 3: Embed documents and store in Chroma
+# -----------------------------
 embeddings = HuggingFaceEmbeddings()
-docsearch = Chroma.from_documents(texts, embeddings)  # store the embedding in docsearch using Chromadb
-print('document ingested')
-# Local LLM (no project_id)
+vectorstore = Chroma.from_documents(texts, embeddings, persist_directory="./chroma_db")
+vectorstore.persist()
+print("✅ Document embedded and stored in Chroma DB")
+
+# -----------------------------
+# Step 4: Initialize Ollama LLM
+# -----------------------------
 llm = Ollama(model="llama3")
-retriever = Chroma(persist_directory='./chroma_db').as_retriever()
 
-# qa_chain = ConversationalRetrievalChain.from_llm(
-#     llm=llm,
-#     retriever=vectorstore.as_retriever(),
-#     memory=ConversationBufferMemory()
-# )
+# -----------------------------
+# Step 5: Define Chat Prompt with both context + question
+# -----------------------------
+system_template = """You are a helpful assistant that answers questions about company policies.
+Use the provided context to answer accurately and concisely.
+If the answer is not found in the context, say 'I don't know.'
 
-# response = qa_chain.run("Summarize the document")
-# print(response)
+Context:
+{context}
+"""
 
-qa = RetrievalQA.from_cchain_type(
-    llm = llm, 
-    retriever = retriever,
-    chain_type = "stuff"
+system_message_prompt = SystemMessagePromptTemplate.from_template(system_template)
+human_message_prompt = HumanMessagePromptTemplate.from_template("{question}")
+chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
+
+# -----------------------------
+# Step 6: Memory and chain
+# -----------------------------
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+qa_chain = ConversationalRetrievalChain.from_llm(
+    llm=llm,
+    retriever=vectorstore.as_retriever(),
+    memory=memory,
+    combine_docs_chain_kwargs={"prompt": chat_prompt},
+    return_source_documents=False
 )
-query = "what are the companies policies?"
-result = qa.run(query)
-print(result)
+
+# -----------------------------
+# Step 7: Interactive chat
+# -----------------------------
+print("\n🧠 Ask about company policies! Type 'exit', 'quit', or 'bye' to end.\n")
+
+while True:
+    query = input("You: ").strip()
+
+    if query.lower() in ["quit", "exit", "bye"]:
+        print("Bot: Goodbye 👋")
+        break
+
+    response = qa_chain.invoke({"question": query})
+    print("Bot:", response["answer"])
